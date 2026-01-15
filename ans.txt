@@ -1,0 +1,364 @@
+----------------------------------------------------------------// fork_demo.c-------------------------------------------
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+
+int main() {
+    pid_t pid = fork();
+
+    if (pid == 0) { // child
+        printf("[Child] PID=%d, PPID=%d\n", getpid(), getppid());
+        sleep(2);          // keep child alive briefly
+        exit(42);          // child exits with status 42
+    } 
+    else if (pid > 0) { // parent
+        int status;
+        pid_t w = wait(&status); // wait for child to finish
+        if (w == -1) {
+            perror("wait");
+            return 1;
+        }
+        if (WIFEXITED(status)) {
+            printf("[Parent] Child (PID=%d) exited with code=%d\n", w, WEXITSTATUS(status));
+        } else {
+            printf("[Parent] Child terminated abnormally\n");
+        }
+    } 
+    else {
+        perror("fork");
+        return 1;
+    }
+    return 0;
+}
+
+
+---------------------------------------------------------------------- ZOMBIE ---------------------------------------------------------
+// zombie.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+int main() {
+    pid_t pid = fork();
+
+    if (pid == 0) { // child
+        printf("[Child] Exiting now\n");
+        exit(0);
+    } else if (pid > 0) { // parent
+        printf("[Parent] Sleeping; child becomes zombie\n");
+        sleep(15); // long enough to inspect zombies via ps
+        printf("[Parent] Now waking up and will exit, child will be reaped by init\n");
+    } else {
+        perror("fork failed");
+        return 1;
+    }
+    return 0;
+}
+
+------------------------------------------------------------------- // orphan.c --------------------------------------------------------------------
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+
+int main() {
+    pid_t pid = fork();
+
+    if (pid == 0) { // child
+        sleep(5);
+        printf("[Child] After parent exit, new PPID=%d\n", getppid());
+    } else if (pid > 0) {
+        printf("[Parent] Exiting immediately\n");
+        exit(0);
+    } else {
+        perror("fork");
+        return 1;
+    }
+    return 0;
+}
+
+----------------------------------------------------------------------- THREAD ---------------------------------------------------------------------
+// thread_basic.c
+#include <stdio.h>
+#include <pthread.h>
+
+void* run(void* arg) {
+    printf("[Thread] Running: pthread_self()=%lu\n", (unsigned long)pthread_self());
+    return NULL;
+}
+
+int main() {
+    pthread_t tid;
+    if (pthread_create(&tid, NULL, run, NULL) != 0) {
+        perror("pthread_create");
+        return 1;
+    }
+    pthread_join(tid, NULL);
+    printf("[Main] Thread joined. Exiting.\n");
+    return 0;
+}
+
+---------------------------------------------
+
+// thread_args.c
+#include <stdio.h>
+#include <pthread.h>
+
+void* run(void* arg) {
+    int v = *(int*)arg;
+    printf("[Thread] Received value = %d\n", v);
+    return NULL;
+}
+
+int main() {
+    pthread_t tid;
+    int val = 100;
+    pthread_create(&tid, NULL, run, &val);
+    pthread_join(tid, NULL);
+    return 0;
+}
+
+--------------------------------------------------------------------------- RACE -----------------------------------------------------------------
+// race.c
+#include <stdio.h>
+#include <pthread.h>
+
+long counter = 0;
+
+void* increment(void* arg) {
+    for (int i = 0; i < 1000000; i++) {
+        counter++; // race here
+    }
+    return NULL;
+}
+
+int main() {
+    pthread_t t1, t2;
+    pthread_create(&t1, NULL, increment, NULL);
+    pthread_create(&t2, NULL, increment, NULL);
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+    printf("Final counter = %ld\n", counter);
+    return 0;
+}
+
+----------------------------------------------------------------- MUTEX ---------------------------------------------------------------------------
+// mutex_fix.c
+#include <stdio.h>
+#include <pthread.h>
+
+long counter = 0;
+pthread_mutex_t lock;
+
+void* increment(void* arg) {
+    for (int i = 0; i < 1000000; i++) {
+        pthread_mutex_lock(&lock);
+        counter++;
+        pthread_mutex_unlock(&lock);
+    }
+    return NULL;
+}
+
+int main() {
+    pthread_t t1, t2;
+    pthread_mutex_init(&lock, NULL);
+
+    pthread_create(&t1, NULL, increment, NULL);
+    pthread_create(&t2, NULL, increment, NULL);
+
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+
+    printf("Final value = %ld\n", counter);
+
+    pthread_mutex_destroy(&lock);
+    return 0;
+}
+
+
+---------------------------------------------------------- PROD CON ------------------------------------------------------------------------------
+// prod_cons.c
+#include <stdio.h>
+#include <pthread.h>
+#include <unistd.h>
+
+int buffer = 0;
+pthread_mutex_t lock;
+pthread_cond_t cond;
+
+void* producer(void* arg) {
+    for(int i = 1; i <= 5; i++) {
+        pthread_mutex_lock(&lock);
+        while(buffer != 0) // buffer full
+            pthread_cond_wait(&cond, &lock);
+        buffer = i;
+        printf("[Producer] Produced %d\n", i);
+        pthread_cond_signal(&cond);
+        pthread_mutex_unlock(&lock);
+        sleep(1);
+    }
+    return NULL;
+}
+
+void* consumer(void* arg) {
+    for(int i = 1; i <= 5; i++) {
+        pthread_mutex_lock(&lock);
+        while(buffer == 0) // buffer empty
+            pthread_cond_wait(&cond, &lock);
+        printf("[Consumer] Consumed %d\n", buffer);
+        buffer = 0;
+        pthread_cond_signal(&cond);
+        pthread_mutex_unlock(&lock);
+        sleep(2);
+    }
+    return NULL;
+}
+
+int main() {
+    pthread_t p, c;
+    pthread_mutex_init(&lock, NULL);
+    pthread_cond_init(&cond, NULL);
+
+    pthread_create(&p, NULL, producer, NULL);
+    pthread_create(&c, NULL, consumer, NULL);
+
+    pthread_join(p, NULL);
+    pthread_join(c, NULL);
+
+    pthread_mutex_destroy(&lock);
+    pthread_cond_destroy(&cond);
+    return 0;
+}
+
+-------------------------------------------------------------------------------------- SEMAFOR ----------------------------------------------------------------------
+
+// semaphore_demo.c
+#include <stdio.h>
+#include <pthread.h>
+#include <semaphore.h>
+
+long counter = 0;
+sem_t sem;
+
+void* inc(void* arg) {
+    for(int i = 0; i < 100000; i++) {
+        sem_wait(&sem);
+        counter++;
+        sem_post(&sem);
+    }
+    return NULL;
+}
+
+int main() {
+    pthread_t t1, t2;
+    sem_init(&sem, 0, 1); // binary semaphore
+
+    pthread_create(&t1, NULL, inc, NULL);
+    pthread_create(&t2, NULL, inc, NULL);
+
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+
+    printf("Final = %ld\n", counter);
+    sem_destroy(&sem);
+    return 0;
+}
+
+---------------------------------------------------------------------------------- MAKE FILE ---------------------------------------------------------------------
+CC = gcc
+CFLAGS = -Wall
+
+prog: main.o math.o
+	$(CC) $(CFLAGS) main.o math.o -o prog
+
+main.o: main.c math.h
+	$(CC) $(CFLAGS) -c main.c
+
+math.o: math.c math.h
+	$(CC) $(CFLAGS) -c math.c
+
+clean:
+	rm -f *.o prog
+
+
+------------------------------------------------------------------------------ INTERNAL assembly -----------------------------------------------------------------
+#include <stdio.h>
+
+int main() {
+    int a = 5, b = 3, sum;
+    asm("addl %%ebx, %%eax"
+        : "=a"(sum)
+        : "a"(a), "b"(b)
+    );
+    printf("Sum = %d\n", sum);
+    return 0;
+}
+
+
+-------------------------------------------------------------------------------- palindromn ----------------------------------------------------------------------
+#include <stdio.h>
+
+int main() {
+    int n, rev = 0, rem, temp;
+
+    printf("Enter a number: ");
+    scanf("%d", &n);
+
+    temp = n;
+
+    while (n != 0) {
+        rem = n % 10;
+        rev = rev * 10 + rem;
+        n = n / 10;
+    }
+
+    if (temp == rev)
+        printf("Palindrome number\n");
+    else
+        printf("Not a palindrome number\n");
+
+    return 0;
+}
+
+----------------------------------------------------------------- prime ----------------------------------------------------------------
+#include <stdio.h>
+
+int main() {
+    int n, i, count = 0;
+
+    printf("Enter a number: ");
+    scanf("%d", &n);
+
+    for (i = 1; i <= n; i++) {
+        if (n % i == 0)
+            count++;
+    }
+
+    if (count == 2)
+        printf("Prime number\n");
+    else
+        printf("Not a prime number\n");
+
+    return 0;
+}
+
+------------------------------------------------------------------ factorial --------------------------------------------------------------
+#include <stdio.h>
+
+int main() {
+    int n, i;
+    long long fact = 1;
+
+    printf("Enter a number: ");
+    scanf("%d", &n);
+
+    for (i = 1; i <= n; i++) {
+        fact = fact * i;
+    }
+
+    printf("Factorial = %lld\n", fact);
+
+    return 0;
+}
+
+
