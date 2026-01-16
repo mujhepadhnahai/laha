@@ -1,0 +1,302 @@
+#SGDClassifier
+
+#Libraries
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.model_selection import GridSearchCV
+
+#Dataset
+
+df = pd.DataFrame({
+    "user_id": [22, 35, 28, 40, 19, 33, 30, 27, 45, 23],
+    "user_gender": ['M', 'F', 'M', 'F', 'M', 'F', 'M', 'M', 'M', 'F'],
+    "user_country": ['US', 'IN', 'UK', 'US', 'IN', 'FR', 'DE', 'IN', 'US', 'UK'],
+    "ad_id": ['A1', np.nan, 'A1', 'A3', 'A2', 'A1', 'A4', 'A3', 'A2', 'A1'],
+    "ad_type": ['banner', 'video', 'banner', np.nan, 'video', 'banner', 'native', 'video', 'banner', 'native'],
+    "bid_price": [0.25, 0.90, 0.40, 0.55, 1.10, 0.30, 0.75, 0.95, np.nan, 0.60],
+    "device": ['mobile', 'desktop', 'mobile', 'tablet', 'mobile', 'desktop', 'mobile', 'tablet', 'mobile', 'desktop'],
+    "hour": [10, 18, 14, 20, 9, 16, 12, 19, 11, 21],
+    "day_of_week": [1, 4, 2, 0, 3, 1, 6, 2, 4, 1],
+    "prev_click": [0, 1, 0, 2, 0, 1, 1, 0, 0, 2],
+    "impression": [3, 5, 2, 6, 4, 5, 3, 4, 2, 7],
+    "clicked": [0, 1, 0, 1, 0, 1, 0, 0, 0, 1]
+})
+
+print(df)
+
+#Q1
+
+# select columns
+num_cols = df.select_dtypes(include=['int64', 'float64']).columns
+cat_cols = df.select_dtypes(include=['object']).columns
+
+# fill numerical NaNs with mean
+df[num_cols] = df[num_cols].fillna(df[num_cols].mean())
+
+# fill categorical NaNs with mode
+for col in cat_cols:
+    df[col] = df[col].fillna(df[col].mode()[0])
+
+#Q2
+
+# Separate target & features
+y = df['clicked']
+X = df.drop(columns=['clicked'], axis=1)
+X
+
+#Q3
+
+# Split into train and test
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+#Q4
+
+# Encode required columns
+enc = OneHotEncoder(handle_unknown='ignore')
+X_train_enc = enc.fit_transform(X_train)
+X_test_enc = enc.transform(X_test)
+
+#Q5
+
+# Build and train SGD classifier model
+sgd_model = SGDClassifier(loss='log_loss', penalty='elasticnet', l1_ratio=0.5, max_iter=1000, random_state=42)
+sgd_model.fit(X_train_enc, y_train)
+
+# Predict
+y_pred = sgd_model.predict(X_test_enc)
+y_pred_proba = sgd_model.predict_proba(X_test_enc)[:, 1]
+
+# Print evaluation metrics
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print("Precision:", precision_score(y_test, y_pred))
+print("Recall:", recall_score(y_test, y_pred))
+print("F1-Score:", f1_score(y_test, y_pred))
+print("ROC-AUC Score:", roc_auc_score(y_test, y_pred_proba))
+
+#Q6
+
+# Find best parameters using GridSearchCV
+param_grid = {
+    'loss': ['hinge', 'log_loss', 'modified_huber', 'squared_hinge'],
+    'penalty': ['l1', 'l2', 'elasticnet'],
+    'l1_ratio': [0.15, 0.3, 0.5, 0.7, 0.85],
+    'max_iter': [500, 1000, 1500, 2000]
+}
+
+grid_search = GridSearchCV(SGDClassifier(random_state=42), param_grid, cv=3, scoring='roc_auc', n_jobs=-1)
+grid_search.fit(X_train_enc, y_train)
+
+print("Best Parameters:", grid_search.best_params_)
+print("Best ROC-AUC Score:", grid_search.best_score_)
+
+#Q7
+
+# get feature names after encoding
+feature_names = enc.get_feature_names_out()
+
+# get coefficient array (for binary classification)
+coefs = grid_search.best_estimator_.coef_[0]
+
+# sort features by absolute importance
+sorted_idx = np.argsort(np.abs(coefs))
+
+# least important 10 features
+print("Least important features:")
+print(feature_names[sorted_idx[:10]])
+
+# most important 10 features
+print("\nMost important features:")
+print(feature_names[sorted_idx[-10:]])
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#DecisionTree
+
+import numpy as np
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+import matplotlib.pyplot as plt
+
+# Training data
+X_train = np.array([
+    [6, 7], [2, 4], [7, 2], [3, 6], [4, 7],
+    [5, 2], [1, 6], [2, 0], [6, 3], [4, 1]
+])
+y_train = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
+
+# Train decision tree
+tree_sk = DecisionTreeClassifier(
+    criterion='gini',
+    max_depth=2,
+    min_samples_split=2
+)
+tree_sk.fit(X_train, y_train)
+
+# Visualize tree
+plt.figure(figsize=(12, 8))
+plot_tree(
+    tree_sk,
+    filled=True,
+    feature_names=['X1', 'X2'],
+    class_names=['0', '1']
+)
+plt.show()
+
+#Load dataset
+import pandas as pd
+df = pd.read_csv(r"filepath/train.csv")
+df.head()
+
+#Target & Feature Separation
+# Target variable
+Y = df[['click']]
+
+# Drop non-useful columns
+X = df.drop(columns=['click', 'id', 'hour', 'device_id', 'device_ip'],axis=1)
+print(X.shape, Y.shape)
+
+#Train-Test Split
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(
+    X, Y,
+    test_size=0.2,
+    random_state=42
+)
+print(
+    X_train.shape, X_test.shape,
+    y_train.shape, y_test.shape
+)
+
+#One-Hot Encoding (Categorical Features)
+from sklearn.preprocessing import OneHotEncoder
+enc = OneHotEncoder(handle_unknown='ignore')
+X_train_enc = enc.fit_transform(X_train)
+X_test_enc = enc.transform(X_test)
+print(X_train_enc)
+
+#Decision Tree: Multiple Depths
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import accuracy_score, roc_auc_score
+max_depths = [3, 10, None]
+for depth in max_depths:
+    decision_tree = DecisionTreeClassifier(
+        criterion='gini',
+        max_depth=depth,
+        min_samples_split=30
+    )
+    decision_tree.fit(X_train_enc, y_train)
+    y_pred = decision_tree.predict(X_test_enc)
+    print(f"Max Depth: {depth}")
+    print("Accuracy:", accuracy_score(y_test, y_pred))
+    print("ROC AUC:", roc_auc_score(y_test, y_pred))
+
+#Decision Tree Hyperparameter Tuning (GridSearchCV)
+from sklearn.model_selection import GridSearchCV
+parameters = {
+    'max_depth': [3, 10, None],
+    'min_samples_split': [30]
+}
+decision_tree = DecisionTreeClassifier(criterion='gini')
+grid_search = GridSearchCV(
+    decision_tree,
+    parameters,
+    cv=3,
+    scoring='roc_auc'
+)
+grid_search.fit(X_train_enc, y_train)
+print("Best parameters:", grid_search.best_params_)
+print("Best ROC AUC score:", grid_search.best_score_)
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#Random Forest Model
+
+from sklearn.ensemble import RandomForestClassifier
+random_forest = RandomForestClassifier(
+    n_estimators=200,
+    max_depth=10,
+    criterion='gini',
+    min_samples_split=20,
+    min_samples_leaf=5,
+    max_features='sqrt',
+    bootstrap=True,
+    oob_score=True,
+    n_jobs=-1,
+    random_state=42,
+    class_weight='balanced'
+)
+
+#Train & Evaluate Random Forest
+random_forest.fit(X_train_enc, y_train)
+y_pred_rf = random_forest.predict(X_test_enc)
+print("Random Forest Accuracy:", accuracy_score(y_test, y_pred_rf))
+print("Random Forest ROC AUC:", roc_auc_score(y_test, y_pred_rf))
+
+#Random Forest Hyperparameter Tuning
+param_grid = {
+    'n_estimators': [100, 150, 200],
+    'max_depth': [10, 15, 20],
+    'min_samples_split': [10, 20, 30],
+    'max_features': ['sqrt', 'log2', 0.3],
+    'class_weight': ['balanced']
+}
+grid_search = GridSearchCV(
+    random_forest,
+    param_grid,
+    cv=3,
+    scoring='roc_auc'
+)
+grid_search.fit(X_train_enc, y_train)
+print("Best parameters:", grid_search.best_params_)
+print("Best score:", grid_search.best_score_)
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#XGBoost Model
+
+import xgboost as xgb
+xgb_model = xgb.XGBClassifier(
+    n_estimators=200,
+    max_depth=10,
+    learning_rate=0.1,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    reg_alpha=0.1,
+    reg_lambda=1.0,
+    random_state=42
+)
+
+#Train & Evaluate XGBoost
+xgb_model.fit(X_train_enc, y_train)
+y_pred_xgb = xgb_model.predict(X_test_enc)
+print("XGBoost Accuracy:", accuracy_score(y_test, y_pred_xgb))
+print("XGBoost ROC AUC:", roc_auc_score(y_test, y_pred_xgb))
+
+#XGBoost Hyperparameter Tuning (RandomizedSearchCV)
+from sklearn.model_selection import RandomizedSearchCV
+param_distributions = {
+    'learning_rate': [0.01, 0.05, 0.1, 0.2],
+    'max_depth': [3, 4, 5, 6, 7],
+    'min_child_weight': [1, 3, 5, 7],
+    'subsample': [0.6, 0.7, 0.8, 0.9],
+    'colsample_bytree': [0.6, 0.7, 0.8, 0.9],
+    'reg_alpha': [0, 0.01, 0.1, 1],
+    'reg_lambda': [0.1, 1, 10, 100]
+}
+random_search = RandomizedSearchCV(
+    xgb_model,
+    param_distributions,
+    n_iter=100,
+    cv=3,
+    scoring='roc_auc',
+    n_jobs=-1,
+    random_state=42
+)
+random_search.fit(X_train_enc, y_train)
+print("Best parameters:", random_search.best_params_)
+print("Best score:", random_search.best_score_)
+
+
